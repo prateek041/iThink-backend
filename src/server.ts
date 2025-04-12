@@ -225,7 +225,20 @@ async function getTranscript(connection: ConnectionPair) {
 }
 
 // Basic HTTP server configuration.
-const httpServer = http.createServer((_, res) => {
+const httpServer = http.createServer((req, res) => {
+  if (req.url === "/health") {
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(
+      JSON.stringify({
+        status: "ok",
+        timestamp: new Date().toISOString(),
+        service: "websocket-server",
+      })
+    );
+    return;
+  }
+
+  // Default response.
   res.writeHead(200, { "content-type": "text/plain" });
   res.end("web-socketProxy server OK");
 });
