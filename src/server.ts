@@ -75,11 +75,6 @@ const whisperAPIVersion: string | undefined =
   process.env.AZURE_WHISPER_API_VERSION;
 const whisperAPIKey: string | undefined = process.env.AZURE_WHISPER_API_KEY;
 
-console.log("deployment", whisperDeploymentName)
-console.log("api key", whisperAPIKey)
-console.log("endpoint", whisperEndpoint)
-console.log("api key", whisperAPIKey)
-
 if (
   !azureEndpoint ||
   !deploymentName ||
