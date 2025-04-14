@@ -31,6 +31,7 @@ if (!WSS_SHARED_SECRET) {
 }
 
 console.log("Allowed origins for Socket.io:", allowedOrigins);
+console.log("Starting server")
 
 // Create output directory for saving audio files
 const AUDIO_OUTPUT_DIR = path.join(__dirname, "../audio_output");
