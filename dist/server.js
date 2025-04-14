@@ -75,6 +75,7 @@ if (!fs_1.default.existsSync(TRANSCRIPTION_OUTPUT_DIR)) {
     console.log(`Created transcription output directory: ${TRANSCRIPTION_OUTPUT_DIR}`);
 }
 const connections = new Map(); // Map socket.id -> ConnectionPair
+let connectionCounter = 0; // Counter to track total connections for voice allocation
 const azureEndpoint = process.env.AZURE_OPENAI_ENDPOINT;
 const deploymentName = process.env.AZURE_OPENAI_DEPLOYMENT_NAME;
 const apiVersion = process.env.OPENAI_API_VERSION;
@@ -175,11 +176,6 @@ function getTranscript(connection) {
                     file: fileStream,
                 });
                 textResult = result.text;
-                console.log(`Transcription obtained: ${result.text.substring(0, 50)}...`);
-                // Save transcription to a text file
-                const transcriptionFilename = `transcription_${timestamp}_${connection.sessionId}.txt`;
-                const transcriptionPath = path_1.default.join(TRANSCRIPTION_OUTPUT_DIR, transcriptionFilename);
-                fs_1.default.writeFileSync(transcriptionPath, result.text);
                 // Delete the temporary audio file
                 fs_1.default.unlinkSync(filePath);
                 console.log(`[${connection.sessionId}] Deleted temporary audio file: ${filePath}`);
@@ -200,7 +196,18 @@ function getTranscript(connection) {
     });
 }
 // Basic HTTP server configuration.
-const httpServer = http_1.default.createServer((_, res) => {
+const httpServer = http_1.default.createServer((req, res) => {
+    // Health check endpoint
+    if (req.url === "/health") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({
+            status: "ok",
+            timestamp: new Date().toISOString(),
+            service: "websocket-server",
+        }));
+        return;
+    }
+    // Default response
     res.writeHead(200, { "content-type": "text/plain" });
     res.end("web-socketProxy server OK");
 });
@@ -214,7 +221,9 @@ const io = new socket_io_1.Server(httpServer, {
 // New connection established
 io.on("connect", (socket) => __awaiter(void 0, void 0, void 0, function* () {
     const connectionId = socket.id; // get the unique connection id
-    console.log(`✅: ${connectionId} Client connected via socket.io`);
+    connectionCounter++; // Increment counter for each new connection
+    const selectedVoice = connectionCounter % 2 === 0 ? "ash" : "verse";
+    console.log(`✅: ${connectionId} Client connected via socket.io (Voice: ${selectedVoice})`);
     let azureRtClient = null;
     try {
         // attempt connection with Azure Realtime Service.
@@ -231,6 +240,7 @@ io.on("connect", (socket) => __awaiter(void 0, void 0, void 0, function* () {
                         modalities: ["text", "audio"],
                         model: "gpt-4o-mini-realtime-preview",
                         input_audio_format: "pcm16", // PCM 16-bit format
+                        voice: selectedVoice,
                     },
                 });
             }

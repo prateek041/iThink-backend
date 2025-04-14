@@ -8,7 +8,6 @@ import { SessionCreatedEvent } from "openai/resources/beta/realtime/realtime";
 import { Session } from "openai/resources/beta/realtime/sessions";
 import fs from "fs";
 import path from "path";
-import { Readable } from "stream";
 
 dotenv.config({ path: ".env" });
 
@@ -62,6 +61,7 @@ interface ConnectionPair {
 }
 
 const connections = new Map<string, ConnectionPair>(); // Map socket.id -> ConnectionPair
+let connectionCounter = 0; // Counter to track total connections for voice allocation
 
 const azureEndpoint: string | undefined = process.env.AZURE_OPENAI_ENDPOINT;
 const deploymentName: string | undefined =
@@ -74,6 +74,11 @@ const whisperDeploymentName: string | undefined =
 const whisperAPIVersion: string | undefined =
   process.env.AZURE_WHISPER_API_VERSION;
 const whisperAPIKey: string | undefined = process.env.AZURE_WHISPER_API_KEY;
+
+console.log("deployment", whisperDeploymentName);
+console.log("api key", whisperAPIKey);
+console.log("endpoint", whisperEndpoint);
+console.log("api key", whisperAPIKey);
 
 if (
   !azureEndpoint ||
@@ -146,7 +151,7 @@ async function getTranscript(connection: ConnectionPair) {
   try {
     // Combine all audio chunks
     const audioData = Buffer.concat(connection.audioBuffer);
-    let textResult: string = ""
+    let textResult: string = "";
 
     // Create WAV header
     // Azure OpenAI Realtime API uses 24kHz sample rate for audio output
@@ -192,17 +197,7 @@ async function getTranscript(connection: ConnectionPair) {
         file: fileStream,
       });
 
-      textResult = result.text
-
-      console.log(`Transcription obtained: ${result.text.substring(0, 50)}...`);
-
-      // Save transcription to a text file
-      const transcriptionFilename = `transcription_${timestamp}_${connection.sessionId}.txt`;
-      const transcriptionPath = path.join(
-        TRANSCRIPTION_OUTPUT_DIR,
-        transcriptionFilename
-      );
-      fs.writeFileSync(transcriptionPath, result.text);
+      textResult = result.text;
 
       // Delete the temporary audio file
       fs.unlinkSync(filePath);
@@ -211,21 +206,22 @@ async function getTranscript(connection: ConnectionPair) {
       );
     } catch (transcriptionError) {
       console.error(`Error during transcription: ${transcriptionError}`);
-      process.exit()
+      process.exit();
     }
 
     // Reset audio buffer
     connection.audioBuffer = [];
     connection.isStreaming = false;
-    return textResult
+    return textResult;
   } catch (error) {
     console.error(`Error processing audio:`, error);
-    process.exit()
+    process.exit();
   }
 }
 
 // Basic HTTP server configuration.
 const httpServer = http.createServer((req, res) => {
+  // Health check endpoint
   if (req.url === "/health") {
     res.writeHead(200, { "content-type": "application/json" });
     res.end(
@@ -238,7 +234,7 @@ const httpServer = http.createServer((req, res) => {
     return;
   }
 
-  // Default response.
+  // Default response
   res.writeHead(200, { "content-type": "text/plain" });
   res.end("web-socketProxy server OK");
 });
@@ -254,7 +250,11 @@ const io = new SocketIOServer(httpServer, {
 // New connection established
 io.on("connect", async (socket: Socket) => {
   const connectionId = socket.id; // get the unique connection id
-  console.log(`✅: ${connectionId} Client connected via socket.io`);
+  connectionCounter++; // Increment counter for each new connection
+  const selectedVoice = connectionCounter % 2 === 0 ? "ash" : "verse";
+  console.log(
+    `✅: ${connectionId} Client connected via socket.io (Voice: ${selectedVoice})`
+  );
 
   let azureRtClient: OpenAIRealtimeWS | null = null;
 
@@ -274,6 +274,7 @@ io.on("connect", async (socket: Socket) => {
             modalities: ["text", "audio"],
             model: "gpt-4o-mini-realtime-preview",
             input_audio_format: "pcm16", // PCM 16-bit format
+            voice: selectedVoice,
           },
         });
       }
@@ -317,8 +318,8 @@ io.on("connect", async (socket: Socket) => {
         // Only save if we have audio data
         if (connection.audioBuffer.length > 0) {
           const transcript = await getTranscript(connection);
-          console.log("transcript", transcript)
-          socket.emit("text_final_response", transcript)
+          console.log("transcript", transcript);
+          socket.emit("text_final_response", transcript);
         } else {
           console.log(`[${connectionId}] No audio data to save`);
         }
@@ -447,4 +448,4 @@ httpServer.listen(PORT, () => {
   );
   console.log(`☁️ Azure Client Auth: Keyless (Entra ID / Managed Identity)`);
   console.log(`📁 Audio files will be saved to: ${AUDIO_OUTPUT_DIR}`);
-});
+})
