@@ -293,6 +293,7 @@ io.on("connect", async (socket: Socket) => {
 
     // Handle Function Calls
     azureRtClient.on("response.function_call_arguments.done", async (event) => {
+      socket.emit("function_calling", { name: "web search" })
       const funcArguments = event.arguments
       const response = await generalWebSearch(funcArguments)
       console.log("RESPONSE RESPONSE", response)
@@ -306,10 +307,10 @@ io.on("connect", async (socket: Socket) => {
       }
 
       azureRtClient?.send(toolResponse)
-      // TODO: Add section to send the tool response to FE, so it can be tracked in realtime.
       azureRtClient?.send({
         type: "response.create",
       });
+      socket.emit("function_called")
     })
 
 

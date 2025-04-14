@@ -15,7 +15,10 @@ const generalWebSearchArgs = z.object({
 })
 
 export const generalWebSearch = async (data: string): Promise<string> => {
+  console.log("ARGS", data)
   const validArguments = await getValidArguments({ data: data, validatorSchema: generalWebSearchArgs, validatorSchemaName: "general_search" })
+  // const validArguments = generalWebSearchArgs.parse(data)
+  // const validArguments = JSON.parse(data)
   const response = await client.search(validArguments.query, {
     searchDepth: "advanced",
     topic: validArguments.topic,
