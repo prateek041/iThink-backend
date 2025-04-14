@@ -4,10 +4,12 @@ import { OpenAIRealtimeWS } from "openai/beta/realtime/ws";
 import http from "http";
 import { Server as SocketIOServer, Socket } from "socket.io";
 import { OpenAIRealtimeError } from "openai/beta/realtime/internal-base";
-import { SessionCreatedEvent } from "openai/resources/beta/realtime/realtime";
+import { ConversationItemCreateEvent, SessionCreatedEvent } from "openai/resources/beta/realtime/realtime";
 import { Session } from "openai/resources/beta/realtime/sessions";
 import fs from "fs";
 import path from "path";
+import { webSearchTool } from "./tools";
+import { generalWebSearch } from "./services/tavily";
 
 dotenv.config({ path: ".env" });
 
@@ -75,11 +77,6 @@ const whisperAPIVersion: string | undefined =
   process.env.AZURE_WHISPER_API_VERSION;
 const whisperAPIKey: string | undefined = process.env.AZURE_WHISPER_API_KEY;
 
-console.log("deployment", whisperDeploymentName);
-console.log("api key", whisperAPIKey);
-console.log("endpoint", whisperEndpoint);
-console.log("api key", whisperAPIKey);
-
 if (
   !azureEndpoint ||
   !deploymentName ||
@@ -97,7 +94,7 @@ if (
 }
 
 // Client configuration setup
-let azureOpenAIClient: AzureOpenAI;
+export let azureOpenAIClient: AzureOpenAI;
 
 try {
   azureOpenAIClient = new AzureOpenAI({
@@ -275,6 +272,7 @@ io.on("connect", async (socket: Socket) => {
             model: "gpt-4o-mini-realtime-preview",
             input_audio_format: "pcm16", // PCM 16-bit format
             voice: selectedVoice,
+            tools: [webSearchTool],
           },
         });
       }
@@ -292,6 +290,28 @@ io.on("connect", async (socket: Socket) => {
 
       socket.emit("ws_ready");
     });
+
+    // Handle Function Calls
+    azureRtClient.on("response.function_call_arguments.done", async (event) => {
+      const funcArguments = event.arguments
+      const response = await generalWebSearch(funcArguments)
+      console.log("RESPONSE RESPONSE", response)
+      const toolResponse: ConversationItemCreateEvent = {
+        type: "conversation.item.create",
+        item: {
+          type: "function_call_output",
+          call_id: event.call_id,
+          output: response
+        }
+      }
+
+      azureRtClient?.send(toolResponse)
+      // TODO: Add section to send the tool response to FE, so it can be tracked in realtime.
+      azureRtClient?.send({
+        type: "response.create",
+      });
+    })
+
 
     azureRtClient.on("response.text.delta", (event) => {
       console.log("Sending text data", event.delta);
@@ -448,4 +468,4 @@ httpServer.listen(PORT, () => {
   );
   console.log(`☁️ Azure Client Auth: Keyless (Entra ID / Managed Identity)`);
   console.log(`📁 Audio files will be saved to: ${AUDIO_OUTPUT_DIR}`);
-})
+});

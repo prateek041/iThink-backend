@@ -45,6 +45,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.azureOpenAIClient = void 0;
 const dotenv = __importStar(require("dotenv"));
 const openai_1 = require("openai");
 const ws_1 = require("openai/beta/realtime/ws");
@@ -52,6 +53,8 @@ const http_1 = __importDefault(require("http"));
 const socket_io_1 = require("socket.io");
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
+const tools_1 = require("./tools");
+const tavily_1 = require("./services/tavily");
 dotenv.config({ path: ".env" });
 const PORT = parseInt(process.env.PORT || "3001", 10);
 const allowedOrigins = [
@@ -84,10 +87,6 @@ const whisperEndpoint = process.env.AZURE_WHISPER_ENDPOINT;
 const whisperDeploymentName = process.env.AZURE_WHISPER_DEPLOYMENT_NAME;
 const whisperAPIVersion = process.env.AZURE_WHISPER_API_VERSION;
 const whisperAPIKey = process.env.AZURE_WHISPER_API_KEY;
-console.log("deployment", whisperDeploymentName);
-console.log("api key", whisperAPIKey);
-console.log("endpoint", whisperEndpoint);
-console.log("api key", whisperAPIKey);
 if (!azureEndpoint ||
     !deploymentName ||
     !apiVersion ||
@@ -99,10 +98,8 @@ if (!azureEndpoint ||
     console.error("Azure OpenAI SDK environment variables not fully set! Exiting.");
     process.exit(1);
 }
-// Client configuration setup
-let azureOpenAIClient;
 try {
-    azureOpenAIClient = new openai_1.AzureOpenAI({
+    exports.azureOpenAIClient = new openai_1.AzureOpenAI({
         apiKey: apiKey,
         apiVersion: apiVersion,
         deployment: deploymentName,
@@ -227,7 +224,7 @@ io.on("connect", (socket) => __awaiter(void 0, void 0, void 0, function* () {
     let azureRtClient = null;
     try {
         // attempt connection with Azure Realtime Service.
-        azureRtClient = yield ws_1.OpenAIRealtimeWS.azure(azureOpenAIClient);
+        azureRtClient = yield ws_1.OpenAIRealtimeWS.azure(exports.azureOpenAIClient);
         if (!azureRtClient) {
             throw new Error("FAILED ❌: Azure Client initialisation failed");
         }
@@ -241,6 +238,7 @@ io.on("connect", (socket) => __awaiter(void 0, void 0, void 0, function* () {
                         model: "gpt-4o-mini-realtime-preview",
                         input_audio_format: "pcm16", // PCM 16-bit format
                         voice: selectedVoice,
+                        tools: [tools_1.webSearchTool],
                     },
                 });
             }
@@ -256,6 +254,25 @@ io.on("connect", (socket) => __awaiter(void 0, void 0, void 0, function* () {
             });
             socket.emit("ws_ready");
         });
+        // Handle Function Calls
+        azureRtClient.on("response.function_call_arguments.done", (event) => __awaiter(void 0, void 0, void 0, function* () {
+            const funcArguments = event.arguments;
+            const response = yield (0, tavily_1.generalWebSearch)(funcArguments);
+            console.log("RESPONSE RESPONSE", response);
+            const toolResponse = {
+                type: "conversation.item.create",
+                item: {
+                    type: "function_call_output",
+                    call_id: event.call_id,
+                    output: response
+                }
+            };
+            azureRtClient === null || azureRtClient === void 0 ? void 0 : azureRtClient.send(toolResponse);
+            // TODO: Add section to send the tool response to FE, so it can be tracked in realtime.
+            azureRtClient === null || azureRtClient === void 0 ? void 0 : azureRtClient.send({
+                type: "response.create",
+            });
+        }));
         azureRtClient.on("response.text.delta", (event) => {
             console.log("Sending text data", event.delta);
             socket.emit("response_text_delta", event);
